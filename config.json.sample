@@ -1,0 +1,6 @@
+{
+  "accessKeyId": "secret", 
+  "secretAccessKey": "secret",
+  "bucket": "bucketname",
+  "expires_in_mins": 10
+}

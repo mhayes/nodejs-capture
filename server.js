@@ -3,28 +3,27 @@ var phantom = require("phantom");
 var AWS = require('aws-sdk');
 var s3 = new AWS.S3();
 var fs = require('fs');
-var s3_sig= require('amazon-s3-url-signer');
-var s3_config = require('./s3.json');
+var config = require('./config.json');
 var app = express();
 
+// Configure Amazon S3
+AWS.config.update({accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey});
 
-var bucket = s3_sig.urlSigner(s3_config.accessKeyId, s3_config.secretAccessKey, {});
-
-
-AWS.config.loadFromPath('./s3.json');
-
+// Configure URL Signing for S3
+var s3_sig= require('amazon-s3-url-signer');
+var signer = s3_sig.urlSigner(config.accessKeyId, config.secretAccessKey, {});
 
 
 var captureUrl = function(url, callback) {
+  var filename = new Date().getTime() + ".png";
   phantom.create(function(ph){
     ph.createPage(function(page) {
       page.set("viewportSize",{width: 1024, height: 768});
       page.open(url, function(status) {
         console.info(status);
         if (status === "success") {
-          page.render("screen.png", function(){
-            console.log("Screen Captured");
-            callback("screen.png");
+          page.render(filename, function(){
+            callback(filename);
           });
         } else {
           callback(false);
@@ -36,39 +35,38 @@ var captureUrl = function(url, callback) {
 };
 
 
-app.get('/', function(req, res){
+app.get('/', function(req, res) {
   res.send('zurb capture service');
 });
 
 app.get('/capture', function(req, res){
+  res.send({success: true});
   var url = req.query.url;
   captureUrl(url, function(filename){
-    // if (filename === false) res.send("failed...");
-    res.send(filename);
-
     fs.readFile("./" + filename, function(err, data) {
       if (err) { throw err; }
-      // var base64Data = new Buffer(data, 'binary').toString('base64');
+      var key = 'phantomjs/' + filename;
       s3.putObject({
-        Bucket: 'dev.capture.zurb',
-        Key: 'screen.png',
+        Bucket: config.bucket,
+        Key: key,
         Body: data,
         ContentType: 'image/png'
       }, function(err, data) {
-        if (err)
-          console.log(err)
-        else
-          console.log("Successfully uploaded data...");
-          var url = bucket.getUrl('GET', 'screen.png', 'dev.capture.zurb', 10);
-          // res.send(url);
+        if (err) {
+          console.log('unable to put file to s3')
+        } else {
+          fs.unlink('./' + filename);
+          var url = signer.getUrl('GET', key, config.bucket, config.expires_in_mins);
           console.log(url);
-          // destroy the original file now
+        }
       });
     });
-
-
-
   });
+});
+
+app.get('/capture/:filename', function(req, res) {
+  // can grep a file
+  // filename: s3-url (line expires 1 hour later)
 });
 
 app.listen(3000);
